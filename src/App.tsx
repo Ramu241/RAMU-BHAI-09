@@ -84,13 +84,40 @@ export default function App() {
 
     const fetchGameHistory = async () => {
       try {
-        const response = await fetch("/api/bingo-history", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ pageSize: 10, pageNo: 1 }),
-        });
-        
-        if (!response.ok) throw new Error("API Proxy responded with error");
+        let response = null;
+        try {
+          response = await fetch("/api/bingo-history", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ pageSize: 10, pageNo: 1 }),
+          });
+        } catch (e) {
+          console.warn("Express API Proxy failed, trying fallback...", e);
+        }
+
+        // If proxy fails (e.g. running on external static servers like Vercel/Github pages), fallback to CORS proxies
+        if (!response || !response.ok) {
+          const fallbackUrls = [
+            "https://api.allorigins.win/raw?url=https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json",
+            "https://corsproxy.io/?https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json",
+            "https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json"
+          ];
+          for (const url of fallbackUrls) {
+            try {
+              const res = await fetch(url);
+              if (res.ok) {
+                response = res;
+                break;
+              }
+            } catch (err) {
+              console.warn(`Fallback proxy ${url} failed:`, err);
+            }
+          }
+        }
+
+        if (!response || !response.ok) {
+          throw new Error("Unable to fetch Bingo history from any source");
+        }
         
         const json = await response.json();
         if (json && json.data && json.data.list && json.data.list.length > 0) {
@@ -400,7 +427,7 @@ export default function App() {
           {/* Persistent Gaming Iframe Container (Always kept in DOM to prevent reloading) */}
           <div 
             className={`fixed inset-0 top-[53px] bottom-[64px] z-20 bg-black transition-all duration-300 overflow-hidden ${
-              activeTab === "game" ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none hidden"
+              activeTab === "game" ? "opacity-100 pointer-events-auto visible" : "opacity-0 pointer-events-none invisible"
             }`}
           >
             <iframe 
