@@ -3,6 +3,10 @@
     {
       "source": "/api/bingo-history",
       "destination": "/api/bingo-history.ts"
+    },
+    {
+      "source": "/api/bingo-history-30s",
+      "destination": "/api/bingo-history-30s.ts"
     }
   ]
 }

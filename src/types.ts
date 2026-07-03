@@ -1,10 +1,7 @@
 export interface PredictionResult {
   period: string;
   size: "BIG" | "SMALL";
-  opposite: number;
-  matching: number;
-  pattern?: string;
-  confidence?: number;
+  opposites: number[];
 }
 
 export interface BingoDraw {
@@ -16,11 +13,8 @@ export interface BingoDraw {
 export interface HistoryItem {
   period: string;
   predictedSize: "BIG" | "SMALL";
-  predictedOpposite: number;
-  predictedMatching: number;
+  predictedOpposites: number[];
   actualNumber: number;
   actualSize: "BIG" | "SMALL";
-  status: "JACKPOT" | "WIN" | "LOSS";
-  pattern?: string;
-  confidence?: number;
+  status: "WIN" | "LOSS";
 }

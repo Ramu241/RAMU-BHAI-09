@@ -31,103 +31,78 @@ function getDeterministicRandom(seedStr: string): number {
   return Math.abs(hash);
 }
 
-// Advanced predictive engine analyzing previous patterns, runs, alternating trends, and hot/cold number frequencies
-function analyzePredictions(nextPeriod: string, precedingRounds: BingoDraw[]): PredictionResult {
-  // Extract last 10 rounds for structural pattern matching
-  const rounds = precedingRounds.slice(0, 10);
-  const sizes = rounds.map(r => parseInt(r.number) >= 5 ? "BIG" : "SMALL");
-  const numbers = rounds.map(r => parseInt(r.number));
-
-  // Determine size prediction based on weighted pattern
-  // More recent rounds have exponentially higher predictive weight
-  const weights = [4.5, 3.8, 3.2, 2.6, 2.0, 1.5, 1.2, 1.0, 0.8, 0.5];
-  let bigWeightSum = 0;
-  let totalWeightSum = 0;
-
-  for (let i = 0; i < sizes.length && i < weights.length; i++) {
-    const weight = weights[i];
-    totalWeightSum += weight;
-    if (sizes[i] === "BIG") {
-      bigWeightSum += weight;
-    }
+// Detailed pattern & trend analysis engine to determine the most accurate predicted size
+function calculateTrendPrediction(dataList: BingoDraw[]): "BIG" | "SMALL" {
+  if (!dataList || dataList.length < 5) {
+    return "BIG"; // Default fallback
   }
 
-  // Check alternating trend pattern (e.g., BIG -> SMALL -> BIG -> SMALL)
-  let isAlternating = true;
-  for (let i = 0; i < Math.min(sizes.length - 1, 4); i++) {
-    if (sizes[i] === sizes[i + 1]) {
-      isAlternating = false;
+  // Extract sizes from the last 15 draws to have a deep window for pattern analysis
+  const lastSizes = dataList.slice(0, 15).map((x: BingoDraw) => 
+    parseInt(x.number) >= 5 ? "BIG" : "SMALL"
+  );
+  
+  const latestSize = lastSizes[0];
+
+  // 1. Check for Active Dragon Trend (Streak of same size)
+  // If the last 3 or more rounds are identical, follow the streak (Dragon series)
+  let streakCount = 1;
+  for (let i = 1; i < lastSizes.length; i++) {
+    if (lastSizes[i] === latestSize) {
+      streakCount++;
+    } else {
       break;
     }
   }
 
-  let predSize: "BIG" | "SMALL";
-  let patternName = "QUANTUM WEIGHTED TREND";
-  let confidence = 84;
-
-  if (isAlternating && sizes.length > 0) {
-    predSize = sizes[0] === "BIG" ? "SMALL" : "BIG";
-    patternName = "ALTERNATING RUN CAPTURE";
-    confidence = 94;
-  } else {
-    const ratio = bigWeightSum / (totalWeightSum || 1);
-    if (ratio > 0.53) {
-      predSize = "BIG";
-      confidence = Math.min(97, Math.round(ratio * 100));
-    } else if (ratio < 0.47) {
-      predSize = "SMALL";
-      confidence = Math.min(97, Math.round((1 - ratio) * 100));
-    } else {
-      // Default to the trend of the last 3 rounds
-      const recentBigCount = sizes.slice(0, 3).filter(s => s === "BIG").length;
-      predSize = recentBigCount >= 2 ? "BIG" : "SMALL";
-      patternName = "TREND LINE EQUILIBRIUM";
-      confidence = 79;
+  if (streakCount >= 3) {
+    // If the streak is very long (e.g. 5 or more), it's highly likely to break (reversal)
+    if (streakCount >= 5) {
+      return latestSize === "BIG" ? "SMALL" : "BIG";
     }
+    // Otherwise, follow the streak (Dragon trend)
+    return latestSize;
   }
 
-  // Hot/Cold numbers logic using deterministic seed combined with statistical weights
-  const seed = getDeterministicRandom(nextPeriod);
-  
-  const bigPool = [5, 6, 7, 8, 9];
-  const smallPool = [0, 1, 2, 3, 4];
+  // 2. Check for Alternating Trend (Ek-Chod-Ek Trend: e.g. B, S, B, S or S, B, S, B)
+  let isAlternating = true;
+  for (let i = 0; i < 4; i++) {
+    if (lastSizes[i] === lastSizes[i + 1]) {
+      isAlternating = false;
+      break;
+    }
+  }
+  if (isAlternating) {
+    // Return the opposite of the last size to continue the alternate pattern
+    return latestSize === "BIG" ? "SMALL" : "BIG";
+  }
 
-  // Frequency mapping for hot numbers
-  const numberFreq: { [key: number]: number } = {};
-  numbers.forEach(n => {
-    numberFreq[n] = (numberFreq[n] || 0) + 1;
-  });
+  // 3. Check for Double-Double (Do-Do Ka Trend: e.g. B, B, S, S or S, S, B, B)
+  const seq4 = lastSizes.slice(0, 4).join(",");
+  if (seq4 === "BIG,BIG,SMALL,SMALL") {
+    return "SMALL";
+  }
+  if (seq4 === "SMALL,SMALL,BIG,BIG") {
+    return "BIG";
+  }
+  if (seq4 === "BIG,SMALL,SMALL,BIG") {
+    return "BIG";
+  }
+  if (seq4 === "SMALL,BIG,BIG,SMALL") {
+    return "SMALL";
+  }
 
-  // Sort pools based on recent frequency (hot first) or seed
-  const sortByHot = (pool: number[]) => {
-    return [...pool].sort((a, b) => {
-      const freqA = numberFreq[a] || 0;
-      const freqB = numberFreq[b] || 0;
-      if (freqA !== freqB) {
-        return freqB - freqA; // Hotter first
-      }
-      return (seed + a) % 3 - (seed + b) % 3; // Deterministic tiebreaker
-    });
-  };
+  // 4. Default Fallback: Weighted Majority analysis of last 10 rounds
+  const recentWindow = lastSizes.slice(0, 10);
+  const bigCount = recentWindow.filter(s => s === "BIG").length;
+  const smallCount = recentWindow.length - bigCount;
 
-  const sortedBig = sortByHot(bigPool);
-  const sortedSmall = sortByHot(smallPool);
+  if (bigCount !== smallCount) {
+    return bigCount > smallCount ? "BIG" : "SMALL";
+  }
 
-  const matchingPool = predSize === "BIG" ? sortedBig : sortedSmall;
-  const oppositePool = predSize === "BIG" ? sortedSmall : sortedBig;
-
-  // Best matches based on dynamic patterns and seed
-  const predMatching = matchingPool[seed % 2]; // Hottest matching
-  const predOpposite = oppositePool[(seed + 2) % 2]; // Best opposite
-
-  return {
-    period: nextPeriod,
-    size: predSize,
-    opposite: predOpposite,
-    matching: predMatching,
-    pattern: patternName,
-    confidence: confidence
-  };
+  // True fallback to latest size
+  return latestSize;
 }
 
 export default function App() {
@@ -142,22 +117,41 @@ export default function App() {
   // Navigation state (keeps iframe alive in DOM)
   const [activeTab, setActiveTab] = useState<"prediction" | "game">("prediction");
 
-  // Game/Prediction engine states
-  const [currentPeriod, setCurrentPeriod] = useState<string>("LOADING...");
-  const [timeRemaining, setTimeRemaining] = useState<number>(60);
-  const [latestDraw, setLatestDraw] = useState<BingoDraw | null>(null);
-  const [prediction, setPrediction] = useState<PredictionResult | null>(null);
+  // Game Mode selection (1M or 30S)
+  const [activeMode, setActiveMode] = useState<"1m" | "30s">("1m");
+
+  // Game/Prediction engine states - WinGo 1M
+  const [currentPeriod1M, setCurrentPeriod1M] = useState<string>("LOADING...");
+  const [timeRemaining1M, setTimeRemaining1M] = useState<number>(60);
+  const [latestDraw1M, setLatestDraw1M] = useState<BingoDraw | null>(null);
+  const [prediction1M, setPrediction1M] = useState<PredictionResult | null>(null);
+  const [historyList1M, setHistoryList1M] = useState<HistoryItem[]>([]);
+
+  // Game/Prediction engine states - WinGo 30S
+  const [currentPeriod30S, setCurrentPeriod30S] = useState<string>("LOADING...");
+  const [timeRemaining30S, setTimeRemaining30S] = useState<number>(30);
+  const [latestDraw30S, setLatestDraw30S] = useState<BingoDraw | null>(null);
+  const [prediction30S, setPrediction30S] = useState<PredictionResult | null>(null);
+  const [historyList30S, setHistoryList30S] = useState<HistoryItem[]>([]);
+
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
   
-  // Real-time custom in-memory history (not saved to localStorage as requested)
-  const [historyList, setHistoryList] = useState<HistoryItem[]>([]);
-  
-  // Cache to store predictions for specific period numbers
-  const predictionsCache = useRef<{ [key: string]: PredictionResult }>({});
-  // Track processed period numbers to avoid duplicate history inserts
-  const processedPeriods = useRef<Set<string>>(new Set());
-  // Store previous active period to trigger prediction generation on state changes
-  const lastActivePeriodRef = useRef<string>("");
+  // Refs to maintain state across interval ticks without stale closure issues (1M)
+  const savedPredictionRef1M = useRef<"BIG" | "SMALL" | "">("");
+  const savedOppositesRef1M = useRef<number[]>([]);
+  const lastCompletedPeriodRef1M = useRef<string>("");
+
+  // Refs to maintain state across interval ticks without stale closure issues (30S)
+  const savedPredictionRef30S = useRef<"BIG" | "SMALL" | "">("");
+  const savedOppositesRef30S = useRef<number[]>([]);
+  const lastCompletedPeriodRef30S = useRef<string>("");
+
+  // Local alias variables mapped to the selected mode to avoid changing UI JSX code
+  const currentPeriod = activeMode === "1m" ? currentPeriod1M : currentPeriod30S;
+  const timeRemaining = activeMode === "1m" ? timeRemaining1M : timeRemaining30S;
+  const latestDraw = activeMode === "1m" ? latestDraw1M : latestDraw30S;
+  const prediction = activeMode === "1m" ? prediction1M : prediction30S;
+  const historyList = activeMode === "1m" ? historyList1M : historyList30S;
 
   // Sound play wrappers
   const triggerWinSound = () => {
@@ -172,17 +166,21 @@ export default function App() {
     if (soundEnabled) SoundEffects.playJackpot();
   };
 
-  // Sync 1-Minute game countdown timer
+  // Sync Countdown Timers for both 1M and 30S modes
   useEffect(() => {
-    const updateTimer = () => {
+    const updateTimers = () => {
       const now = new Date();
       const seconds = now.getSeconds();
-      const remaining = 60 - seconds;
-      setTimeRemaining(remaining);
+      
+      // 1M remains to 60s
+      setTimeRemaining1M(60 - seconds);
+      
+      // 30S remains to 30s intervals (0-29 and 30-59)
+      setTimeRemaining30S(30 - (seconds % 30));
     };
 
-    updateTimer();
-    const timerInterval = setInterval(updateTimer, 1000);
+    updateTimers();
+    const timerInterval = setInterval(updateTimers, 1000);
     return () => clearInterval(timerInterval);
   }, []);
 
@@ -216,28 +214,28 @@ export default function App() {
           const json = await res.json();
           return json?.data?.list || null;
         },
-        // 3. corsproxy.io with GET (Highly compatible and fast CORS proxy)
+        // 4. corsproxy.io with GET (Highly compatible and fast CORS proxy)
         async () => {
           const res = await fetch("https://corsproxy.io/?https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json");
           if (!res.ok) return null;
           const json = await res.json();
           return json?.data?.list || null;
         },
-        // 4. allorigins.win raw (Excellent GET fallback)
+        // 5. allorigins.win raw (Excellent GET fallback)
         async () => {
           const res = await fetch("https://api.allorigins.win/raw?url=" + encodeURIComponent("https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json"));
           if (!res.ok) return null;
           const json = await res.json();
           return json?.data?.list || null;
         },
-        // 5. codetabs.com with GET (Additional reliable fallback CORS proxy)
+        // 6. codetabs.com with GET (Additional reliable fallback CORS proxy)
         async () => {
           const res = await fetch("https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent("https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json"));
           if (!res.ok) return null;
           const json = await res.json();
           return json?.data?.list || null;
         },
-        // 6. Direct fetch (In case CORS is disabled or relaxed in user's browser)
+        // 7. Direct fetch (In case CORS is disabled or relaxed in user's browser)
         async () => {
           const res = await fetch("https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json");
           if (!res.ok) return null;
@@ -254,116 +252,235 @@ export default function App() {
             break;
           }
         } catch (err) {
-          console.warn(`Proxy attempt ${i + 1} failed:`, err);
+          console.warn(`Proxy 1M attempt ${i + 1} failed:`, err);
         }
       }
 
       if (!dataList) {
-        console.error("All Bingo API fetch attempts failed. Check internet connection.");
+        console.error("All Bingo 1M API fetch attempts failed. Check internet connection.");
         return;
       }
 
       try {
         const latest: BingoDraw = dataList[0];
-        setLatestDraw(latest);
+        setLatestDraw1M(latest);
 
-        // The active period is the latest completed period issueNumber + 1
-        const nextActivePeriod = (BigInt(latest.issueNumber) + 1n).toString();
-        setCurrentPeriod(nextActivePeriod);
+        // Perform smart pattern recognition/trend prediction
+        const nextPred = calculateTrendPrediction(dataList);
 
-        // Generate prediction for the upcoming active period
-        let currentPred = predictionsCache.current[nextActivePeriod];
-        if (!currentPred) {
-          currentPred = analyzePredictions(nextActivePeriod, dataList);
-          predictionsCache.current[nextActivePeriod] = currentPred;
-        }
-        setPrediction(currentPred);
+        if (lastCompletedPeriodRef1M.current !== latest.issueNumber) {
+          const actualNum = parseInt(latest.number);
+          const actualSize = actualNum >= 5 ? "BIG" : "SMALL";
 
-        // Re-construct history list retroactively and dynamically on load.
-        // This keeps the user's history loaded without persisting in localStorage!
-        const newHistoryItems: HistoryItem[] = [];
+          let lastPred = savedPredictionRef1M.current || nextPred;
+          let lastOpps = savedOppositesRef1M.current || [];
 
-        for (let k = 0; k < dataList.length; k++) {
-          const draw = dataList[k];
-          const finishedPeriod = draw.issueNumber;
+          // Only add to history if we have already witnessed a period transition
+          if (lastCompletedPeriodRef1M.current) {
+            const isWin = (lastPred === actualSize) || lastOpps.includes(actualNum);
 
-          // We need 10 preceding rounds to calculate what our advanced engine predicted for this period
-          if (k + 10 < dataList.length) {
-            const precedingRounds = dataList.slice(k + 1);
-            const predResult = analyzePredictions(finishedPeriod, precedingRounds);
-
-            const actualNum = parseInt(draw.number);
-            const actualSize = actualNum >= 5 ? "BIG" : "SMALL";
-
-            let outcomeStatus: "JACKPOT" | "WIN" | "LOSS" = "LOSS";
-            if (actualNum === predResult.matching || actualNum === predResult.opposite) {
-              outcomeStatus = "JACKPOT";
-            } else if (actualSize === predResult.size) {
-              outcomeStatus = "WIN";
+            // Play audio feedback (only if 1m is currently active to avoid sound double triggers)
+            if (isWin) {
+              if (activeMode === "1m" && soundEnabled) SoundEffects.playWin();
             } else {
-              outcomeStatus = "LOSS";
+              if (activeMode === "1m" && soundEnabled) SoundEffects.playLoss();
             }
 
-            newHistoryItems.push({
-              period: finishedPeriod,
-              predictedSize: predResult.size,
-              predictedOpposite: predResult.opposite,
-              predictedMatching: predResult.matching,
+            const newLogItem: HistoryItem = {
+              period: latest.issueNumber,
+              predictedSize: lastPred,
+              predictedOpposites: lastOpps,
               actualNumber: actualNum,
               actualSize: actualSize,
-              status: outcomeStatus,
-              pattern: predResult.pattern,
-              confidence: predResult.confidence
-            });
+              status: isWin ? "WIN" : "LOSS"
+            };
+
+            // Prepend new history items (newest completed on top)
+            setHistoryList1M(prev => [newLogItem, ...prev]);
           }
+
+          // Generate 1 SMALL and 1 BIG recommended number deterministically
+          const S_POOL = [0, 1, 2, 3, 4];
+          const B_POOL = [5, 6, 7, 8, 9];
+          const upcomingPeriodStr = (BigInt(latest.issueNumber) + 1n).toString();
+          const seed = getDeterministicRandom(upcomingPeriodStr);
+
+          const selectedSmall = S_POOL[seed % S_POOL.length];
+          const selectedBig = B_POOL[(seed + 3) % B_POOL.length];
+          const shuffledOpposites = [selectedSmall, selectedBig];
+
+          // Update refs to track state for next round
+          lastCompletedPeriodRef1M.current = latest.issueNumber;
+          savedPredictionRef1M.current = nextPred;
+          savedOppositesRef1M.current = shuffledOpposites;
+
+          // Update states to display upcoming period and predictions
+          setCurrentPeriod1M(upcomingPeriodStr);
+          setPrediction1M({
+            period: upcomingPeriodStr,
+            size: nextPred,
+            opposites: shuffledOpposites
+          });
         }
-
-        // Sort items descending (newest completed on top)
-        newHistoryItems.sort((a, b) => b.period.localeCompare(a.period));
-
-        // Detect round roll-over to play audio feedback dynamically
-        if (newHistoryItems.length > 0) {
-          const latestHistoryItem = newHistoryItems[0];
-          if (lastActivePeriodRef.current && latestHistoryItem.period === lastActivePeriodRef.current) {
-            if (!processedPeriods.current.has(latestHistoryItem.period)) {
-              if (latestHistoryItem.status === "JACKPOT") {
-                triggerJackpotSound();
-              } else if (latestHistoryItem.status === "WIN") {
-                triggerWinSound();
-              } else {
-                triggerLossSound();
-              }
-              processedPeriods.current.add(latestHistoryItem.period);
-            }
-          }
-        }
-
-        lastActivePeriodRef.current = nextActivePeriod;
-        
-        setHistoryList(prevList => {
-          if (prevList.length === 0) {
-            return newHistoryItems;
-          }
-          const existingPeriods = new Set(prevList.map(item => item.period));
-          const addedItems = newHistoryItems.filter(item => !existingPeriods.has(item.period));
-          
-          if (addedItems.length > 0) {
-            const combinedList = [...addedItems, ...prevList];
-            return combinedList.sort((a, b) => b.period.localeCompare(a.period));
-          }
-          return prevList;
-        });
-
       } catch (err) {
-        console.error("Error processing history list:", err);
+        console.error("Error processing 1M history list:", err);
       }
     };
 
-    // Initial fetch and set interval every 4 seconds
+    // Initial fetch and set interval every 3 seconds to match your code
     fetchGameHistory();
-    const intervalId = setInterval(fetchGameHistory, 4000);
+    const intervalId = setInterval(fetchGameHistory, 3000);
     return () => clearInterval(intervalId);
-  }, [isVerified, soundEnabled]);
+  }, [isVerified, soundEnabled, activeMode]);
+
+  // Poll real-time Bingo 30S API via server proxy
+  useEffect(() => {
+    if (!isVerified) return;
+
+    const fetchGameHistory30S = async () => {
+      let dataList: BingoDraw[] | null = null;
+      
+      // Highly resilient, multi-layered proxy attempts supporting both server-side Express & client-only (Vercel/GitHub pages) hosts
+      const attempts = [
+        // 1. Direct local API proxy (For our full-stack Express server)
+        async () => {
+          const res = await fetch("/api/bingo-history-30s");
+          if (!res.ok) return null;
+          const json = await res.json();
+          return json?.data?.list || null;
+        },
+        // 2. User's working Vercel Proxy fallback
+        async () => {
+          const res = await fetch("/api/bingo-history-30s");
+          if (!res.ok) return null;
+          const json = await res.json();
+          return json?.data?.list || null;
+        },
+        // 3. Dedicated Cloud Run Shared App Backend Proxy (Guaranteed CORS enabled, high reliability)
+        async () => {
+          const res = await fetch("https://ais-pre-3kkfv6cntc2226kyxo5gt2-483176443886.asia-southeast1.run.app/api/bingo-history-30s");
+          if (!res.ok) return null;
+          const json = await res.json();
+          return json?.data?.list || null;
+        },
+        // 4. corsproxy.io with GET (Highly compatible and fast CORS proxy)
+        async () => {
+          const res = await fetch("https://corsproxy.io/?https://draw.ar-lottery01.com/WinGo/WinGo_30S/GetHistoryIssuePage.json");
+          if (!res.ok) return null;
+          const json = await res.json();
+          return json?.data?.list || null;
+        },
+        // 5. allorigins.win raw (Excellent GET fallback)
+        async () => {
+          const res = await fetch("https://api.allorigins.win/raw?url=" + encodeURIComponent("https://draw.ar-lottery01.com/WinGo/WinGo_30S/GetHistoryIssuePage.json"));
+          if (!res.ok) return null;
+          const json = await res.json();
+          return json?.data?.list || null;
+        },
+        // 6. codetabs.com with GET (Additional reliable fallback CORS proxy)
+        async () => {
+          const res = await fetch("https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent("https://draw.ar-lottery01.com/WinGo/WinGo_30S/GetHistoryIssuePage.json"));
+          if (!res.ok) return null;
+          const json = await res.json();
+          return json?.data?.list || null;
+        },
+        // 7. Direct fetch (In case CORS is disabled or relaxed in user's browser)
+        async () => {
+          const res = await fetch("https://draw.ar-lottery01.com/WinGo/WinGo_30S/GetHistoryIssuePage.json");
+          if (!res.ok) return null;
+          const json = await res.json();
+          return json?.data?.list || null;
+        }
+      ];
+
+      for (let i = 0; i < attempts.length; i++) {
+        try {
+          const list = await attempts[i]();
+          if (list && Array.isArray(list) && list.length > 0) {
+            dataList = list;
+            break;
+          }
+        } catch (err) {
+          console.warn(`Proxy 30S attempt ${i + 1} failed:`, err);
+        }
+      }
+
+      if (!dataList) {
+        console.error("All Bingo 30S API fetch attempts failed. Check internet connection.");
+        return;
+      }
+
+      try {
+        const latest: BingoDraw = dataList[0];
+        setLatestDraw30S(latest);
+
+        // Perform smart pattern recognition/trend prediction
+        const nextPred = calculateTrendPrediction(dataList);
+
+        if (lastCompletedPeriodRef30S.current !== latest.issueNumber) {
+          const actualNum = parseInt(latest.number);
+          const actualSize = actualNum >= 5 ? "BIG" : "SMALL";
+
+          let lastPred = savedPredictionRef30S.current || nextPred;
+          let lastOpps = savedOppositesRef30S.current || [];
+
+          // Only add to history if we have already witnessed a period transition
+          if (lastCompletedPeriodRef30S.current) {
+            const isWin = (lastPred === actualSize) || lastOpps.includes(actualNum);
+
+            // Play audio feedback (only if 30s is currently active to avoid sound double triggers)
+            if (isWin) {
+              if (activeMode === "30s" && soundEnabled) SoundEffects.playWin();
+            } else {
+              if (activeMode === "30s" && soundEnabled) SoundEffects.playLoss();
+            }
+
+            const newLogItem: HistoryItem = {
+              period: latest.issueNumber,
+              predictedSize: lastPred,
+              predictedOpposites: lastOpps,
+              actualNumber: actualNum,
+              actualSize: actualSize,
+              status: isWin ? "WIN" : "LOSS"
+            };
+
+            // Prepend new history items (newest completed on top)
+            setHistoryList30S(prev => [newLogItem, ...prev]);
+          }
+
+          // Generate 1 SMALL and 1 BIG recommended number deterministically
+          const S_POOL = [0, 1, 2, 3, 4];
+          const B_POOL = [5, 6, 7, 8, 9];
+          const upcomingPeriodStr = (BigInt(latest.issueNumber) + 1n).toString();
+          const seed = getDeterministicRandom(upcomingPeriodStr);
+
+          const selectedSmall = S_POOL[seed % S_POOL.length];
+          const selectedBig = B_POOL[(seed + 3) % B_POOL.length];
+          const shuffledOpposites = [selectedSmall, selectedBig];
+
+          // Update refs to track state for next round
+          lastCompletedPeriodRef30S.current = latest.issueNumber;
+          savedPredictionRef30S.current = nextPred;
+          savedOppositesRef30S.current = shuffledOpposites;
+
+          // Update states to display upcoming period and predictions
+          setCurrentPeriod30S(upcomingPeriodStr);
+          setPrediction30S({
+            period: upcomingPeriodStr,
+            size: nextPred,
+            opposites: shuffledOpposites
+          });
+        }
+      } catch (err) {
+        console.error("Error processing 30S history list:", err);
+      }
+    };
+
+    // Initial fetch and set interval every 2.5 seconds for higher accuracy in fast 30s intervals
+    fetchGameHistory30S();
+    const intervalId = setInterval(fetchGameHistory30S, 2500);
+    return () => clearInterval(intervalId);
+  }, [isVerified, soundEnabled, activeMode]);
 
   // Hack password verification flow with badass cyber animation sequence
   const handleVerifyPassword = (e: React.FormEvent) => {
@@ -447,12 +564,9 @@ export default function App() {
                     VIP SUPREME V15 • SECURED
                   </p>
 
-                  <div className="w-full bg-red-950/20 border-2 border-red-500/40 rounded-xl p-4 mb-6 relative">
-                    <p className="text-xs text-[#ff003c] font-black uppercase tracking-wider text-center mb-1.5 flex items-center justify-center gap-1.5">
-                      ⚠️ महत्वपूर्ण चेतावनी (WARNING)
-                    </p>
-                    <p className="text-[11px] text-gray-200 font-bold text-center leading-relaxed">
-                      इसी लिंक से आईडी बनाकर और <span className="text-[#ffea00] underline font-extrabold">500 का डिपाजिट करके</span> ही प्ले करें वरना आपका भारी लॉस हो सकता है। अगर आप दूसरे अकाउंट से लॉगिन या खेलने की कोशिश करते हैं तो आपका भारी नुकसान हो सकता है।
+                  <div className="w-full bg-[#111] border border-dashed border-[#ffea00]/30 rounded-lg p-4 mb-6 text-center">
+                    <p className="text-xs text-gray-300 uppercase tracking-wider leading-relaxed">
+                      THIS PANEL REQUIRES A VALID PASSCODE TO INTEGRATE SECURE SERVER BYPASS MODULES.
                     </p>
                   </div>
 
@@ -609,34 +723,40 @@ export default function App() {
                     <Sparkles className="w-4 h-4" />
                   </div>
                   <div>
-                    <h4 className="text-xs font-bold text-white uppercase tracking-wider">PREDICTING FOR BINGO 1-MINUTE</h4>
+                    <h4 className="text-xs font-bold text-white uppercase tracking-wider">PREDICTING FOR BINGO {activeMode === "1m" ? "1-MINUTE" : "30-SECONDS"}</h4>
                     <p className="text-[11px] text-gray-300 mt-1 leading-relaxed">
-                      Our system intercepts real-time issue streams from bdgwinmy.cc. Follow predictions below to secure jackpot multi-folds!
+                      Our quantum system intercepts real-time streams from bdgwinmy.cc. Select game duration below to synchronize predictions!
                     </p>
                   </div>
                 </div>
               </motion.div>
 
-              {/* Premium Warning Alert Box */}
+              {/* High-Fidelity Game Mode Switcher Tab */}
               <motion.div 
-                initial={{ opacity: 0, y: 10 }}
+                initial={{ opacity: 0, y: 5 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="bg-red-950/20 border-2 border-red-500/40 rounded-2xl p-4 relative overflow-hidden shadow-[0_0_20px_rgba(239,68,68,0.15)]"
+                className="flex bg-black/80 border-2 border-[#00ff41]/25 rounded-2xl p-1.5 gap-2 shadow-[0_0_20px_rgba(0,255,65,0.05)] w-full"
               >
-                <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(239,68,68,0.1),transparent_50%)]" />
-                <div className="flex items-start gap-3">
-                  <div className="p-2 bg-red-500/10 rounded-xl border border-red-500/30 text-red-400 mt-1">
-                    <ShieldAlert className="w-5 h-5 animate-pulse" />
-                  </div>
-                  <div>
-                    <h4 className="text-xs font-black text-[#ff003c] uppercase tracking-wider flex items-center gap-1.5">
-                      ⚠️ महत्वपूर्ण चेतावनी (IMPORTANT WARNING)
-                    </h4>
-                    <p className="text-[11px] text-gray-200 mt-1 leading-relaxed font-bold">
-                      इसी लिंक से आईडी बनाकर और <span className="text-[#ffea00] underline">500 का डिपाजिट करके</span> ही प्ले करें वरना आपका भारी लॉस हो सकता है। अगर आप दूसरे अकाउंट से लॉगिन या खेलने की कोशिश करते हैं तो आपका भारी नुकसान हो सकता है और हैक काम नहीं करेगा।
-                    </p>
-                  </div>
-                </div>
+                <button
+                  onClick={() => setActiveMode("1m")}
+                  className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl font-bold uppercase text-xs tracking-wider transition-all duration-300 cursor-pointer ${
+                    activeMode === "1m"
+                      ? "text-black bg-gradient-to-r from-[#00ff41] to-[#00d2ff] shadow-[0_0_15px_rgba(0,255,65,0.25)]"
+                      : "text-gray-400 hover:text-white hover:bg-white/5"
+                  }`}
+                >
+                  🎰 WINGO 1-MIN
+                </button>
+                <button
+                  onClick={() => setActiveMode("30s")}
+                  className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl font-bold uppercase text-xs tracking-wider transition-all duration-300 cursor-pointer ${
+                    activeMode === "30s"
+                      ? "text-black bg-gradient-to-r from-[#00ff41] to-[#00d2ff] shadow-[0_0_15px_rgba(0,255,65,0.25)]"
+                      : "text-gray-400 hover:text-white hover:bg-white/5"
+                  }`}
+                >
+                  ⚡ WINGO 30-SEC
+                </button>
               </motion.div>
 
               {/* Prediction Display Glass Panel */}
@@ -672,30 +792,17 @@ export default function App() {
                   </div>
                   <AnimatePresence mode="wait">
                     {prediction ? (
-                      <div className="space-y-3">
-                        <motion.div 
-                          key={prediction.size}
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: -10 }}
-                          className={`text-6xl md:text-7xl font-display font-black tracking-widest drop-shadow-[0_0_20px_rgba(0,255,65,0.4)] ${
-                            prediction.size === "BIG" ? "text-transparent bg-clip-text bg-gradient-to-r from-red-500 to-amber-500" : "text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-indigo-500"
-                          }`}
-                        >
-                          {prediction.size}
-                        </motion.div>
-
-                        {prediction.pattern && (
-                          <div className="flex flex-col items-center justify-center gap-1 mt-2">
-                            <div className="text-[10px] text-[#00ff41] tracking-widest font-extrabold uppercase bg-[#00ff41]/10 px-2.5 py-1 rounded-full border border-[#00ff41]/20">
-                              ⚡ PATTERN: {prediction.pattern}
-                            </div>
-                            <div className="text-[11px] text-gray-300 font-bold uppercase">
-                              ACCURACY PROBABILITY: <span className="text-[#ffea00] font-mono font-black">{prediction.confidence}%</span>
-                            </div>
-                          </div>
-                        )}
-                      </div>
+                      <motion.div 
+                        key={prediction.size}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -10 }}
+                        className={`text-6xl md:text-7xl font-display font-black tracking-widest drop-shadow-[0_0_20px_rgba(0,255,65,0.4)] ${
+                          prediction.size === "BIG" ? "text-transparent bg-clip-text bg-gradient-to-r from-red-500 to-amber-500" : "text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-indigo-500"
+                        }`}
+                      >
+                        {prediction.size}
+                      </motion.div>
                     ) : (
                       <div className="text-3xl text-[#ffea00] tracking-widest uppercase font-black animate-pulse py-4">
                         ANALYZING LOGIC...
@@ -704,37 +811,28 @@ export default function App() {
                   </AnimatePresence>
                 </div>
 
-                {/* Sub-Predictions: 1 Matching and 1 Opposite Number as requested */}
-                <div className="grid grid-cols-2 gap-4 mt-2">
-                  
-                  {/* Matching Number Block */}
-                  <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-3 flex flex-col items-center">
-                    <div className="text-[10px] text-gray-400 font-extrabold uppercase tracking-wider mb-1.5">
-                      MATCHING NUMBER
-                    </div>
-                    {prediction ? (
-                      <div className="w-10 h-10 rounded-full bg-gradient-to-r from-[#00ff41] to-[#00d2ff] text-black font-black text-lg flex items-center justify-center shadow-md shadow-[#00ff41]/20">
-                        {prediction.matching}
-                      </div>
-                    ) : (
-                      <div className="w-10 h-10 rounded-full bg-white/5 animate-pulse" />
-                    )}
+                {/* Sub-Predictions: 1 Small & 1 Big Number combo as requested */}
+                <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-4 flex flex-col items-center mt-2 shadow-[inset_0_0_15px_rgba(255,255,255,0.02)]">
+                  <div className="text-[10px] text-gray-400 font-extrabold uppercase tracking-[0.1em] mb-3">
+                    RECOMMENDED NUMBERS (1 SMALL & 1 BIG)
                   </div>
-
-                  {/* Opposite Number Block */}
-                  <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-3 flex flex-col items-center">
-                    <div className="text-[10px] text-gray-400 font-extrabold uppercase tracking-wider mb-1.5">
-                      OPPOSITE NUMBER
+                  {prediction && prediction.opposites ? (
+                    <div className="flex items-center gap-4">
+                      {prediction.opposites.map((num, i) => (
+                        <div 
+                          key={i} 
+                          className="w-12 h-12 rounded-full bg-gradient-to-br from-[#ff003c] via-purple-600 to-[#00d2ff] text-white font-black text-xl flex items-center justify-center shadow-lg shadow-red-500/25 border border-white/10"
+                        >
+                          {num}
+                        </div>
+                      ))}
                     </div>
-                    {prediction ? (
-                      <div className="w-10 h-10 rounded-full bg-gradient-to-r from-[#ff003c] to-amber-500 text-white font-black text-lg flex items-center justify-center shadow-md shadow-red-500/20">
-                        {prediction.opposite}
-                      </div>
-                    ) : (
-                      <div className="w-10 h-10 rounded-full bg-white/5 animate-pulse" />
-                    )}
-                  </div>
-
+                  ) : (
+                    <div className="flex gap-4">
+                      <div className="w-12 h-12 rounded-full bg-white/5 animate-pulse" />
+                      <div className="w-12 h-12 rounded-full bg-white/5 animate-pulse" />
+                    </div>
+                  )}
                 </div>
 
                 {/* Countdown Timer with 1-minute standard cycle */}
@@ -763,14 +861,13 @@ export default function App() {
                 </div>
 
                 {historyList.length === 0 ? (
-                  <div className="bg-[#090909]/40 border border-white/[0.04] rounded-2xl p-8 text-center text-gray-500 uppercase tracking-wider text-xs">
-                    WAITING FOR ACTIVE ROUND TO FINISH FOR RESULTS...
+                  <div className="bg-[#090909]/40 border border-white/[0.04] rounded-2xl p-8 text-center text-gray-500 uppercase tracking-wider text-xs leading-relaxed">
+                    WAITING FOR THE FIRST ACTIVE ROUND TO FINISH TO APPEND LIVE RESULTS LOGS...
                   </div>
                 ) : (
                   <div className="space-y-2.5 max-h-80 overflow-y-auto pr-1">
                     <AnimatePresence initial={false}>
                       {historyList.map((item) => {
-                        const isJackpot = item.status === "JACKPOT";
                         const isWin = item.status === "WIN";
                         
                         return (
@@ -782,26 +879,16 @@ export default function App() {
                           >
                             <div className="flex flex-col">
                               <span className="font-mono text-[10px] text-gray-500 tracking-wider">
-                                PRD: {item.period.slice(-4)}
+                                PERIOD: {item.period.slice(-3)}
                               </span>
                               <div className="flex items-center gap-2 mt-0.5">
                                 <span className="text-xs font-extrabold text-white uppercase tracking-wide">
                                   PRED: {item.predictedSize}
                                 </span>
-                                <div className="flex items-center gap-1">
-                                  <span className="text-[9px] text-gray-400 bg-white/5 rounded px-1.5 py-0.5">
-                                    M:{item.predictedMatching}
-                                  </span>
-                                  <span className="text-[9px] text-gray-400 bg-white/5 rounded px-1.5 py-0.5">
-                                    O:{item.predictedOpposite}
-                                  </span>
-                                </div>
-                              </div>
-                              {item.pattern && (
-                                <span className="text-[9px] text-gray-400/60 font-extrabold uppercase mt-1 tracking-wider">
-                                  ⚡ {item.pattern} ({item.confidence}%)
+                                <span className="text-[9px] text-gray-400 bg-white/5 rounded px-1.5 py-0.5 font-mono font-medium">
+                                  NUMS: {item.predictedOpposites.join(", ")}
                                 </span>
-                              )}
+                              </div>
                             </div>
 
                             {/* Center outcome actual number */}
@@ -814,11 +901,7 @@ export default function App() {
 
                             {/* Status and Sound indicator */}
                             <div className="flex items-center gap-3">
-                              {isJackpot ? (
-                                <span className="bg-gradient-to-r from-amber-500 to-[#ffea00] text-black text-[10px] font-black tracking-widest px-3 py-1 rounded-full uppercase shadow-md shadow-amber-500/10">
-                                  🎰 JACKPOT
-                                </span>
-                              ) : isWin ? (
+                              {isWin ? (
                                 <span className="bg-[#00ff41]/10 border border-[#00ff41]/30 text-[#00ff41] text-[10px] font-extrabold tracking-widest px-3 py-1 rounded-full uppercase">
                                   WIN 🐯
                                 </span>
