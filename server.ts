@@ -6,6 +6,18 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
+  // CORS Middleware
+  app.use((req, res, next) => {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, PATCH, DELETE");
+    res.setHeader("Access-Control-Allow-Headers", "X-Requested-With,Content-Type,Authorization");
+    if (req.method === "OPTIONS") {
+      res.sendStatus(200);
+      return;
+    }
+    next();
+  });
+
   app.use(express.json());
 
   // Proxy API route to avoid CORS when fetching Bingo 1M history
