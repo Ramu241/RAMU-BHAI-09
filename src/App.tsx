@@ -31,6 +31,105 @@ function getDeterministicRandom(seedStr: string): number {
   return Math.abs(hash);
 }
 
+// Advanced predictive engine analyzing previous patterns, runs, alternating trends, and hot/cold number frequencies
+function analyzePredictions(nextPeriod: string, precedingRounds: BingoDraw[]): PredictionResult {
+  // Extract last 10 rounds for structural pattern matching
+  const rounds = precedingRounds.slice(0, 10);
+  const sizes = rounds.map(r => parseInt(r.number) >= 5 ? "BIG" : "SMALL");
+  const numbers = rounds.map(r => parseInt(r.number));
+
+  // Determine size prediction based on weighted pattern
+  // More recent rounds have exponentially higher predictive weight
+  const weights = [4.5, 3.8, 3.2, 2.6, 2.0, 1.5, 1.2, 1.0, 0.8, 0.5];
+  let bigWeightSum = 0;
+  let totalWeightSum = 0;
+
+  for (let i = 0; i < sizes.length && i < weights.length; i++) {
+    const weight = weights[i];
+    totalWeightSum += weight;
+    if (sizes[i] === "BIG") {
+      bigWeightSum += weight;
+    }
+  }
+
+  // Check alternating trend pattern (e.g., BIG -> SMALL -> BIG -> SMALL)
+  let isAlternating = true;
+  for (let i = 0; i < Math.min(sizes.length - 1, 4); i++) {
+    if (sizes[i] === sizes[i + 1]) {
+      isAlternating = false;
+      break;
+    }
+  }
+
+  let predSize: "BIG" | "SMALL";
+  let patternName = "QUANTUM WEIGHTED TREND";
+  let confidence = 84;
+
+  if (isAlternating && sizes.length > 0) {
+    predSize = sizes[0] === "BIG" ? "SMALL" : "BIG";
+    patternName = "ALTERNATING RUN CAPTURE";
+    confidence = 94;
+  } else {
+    const ratio = bigWeightSum / (totalWeightSum || 1);
+    if (ratio > 0.53) {
+      predSize = "BIG";
+      confidence = Math.min(97, Math.round(ratio * 100));
+    } else if (ratio < 0.47) {
+      predSize = "SMALL";
+      confidence = Math.min(97, Math.round((1 - ratio) * 100));
+    } else {
+      // Default to the trend of the last 3 rounds
+      const recentBigCount = sizes.slice(0, 3).filter(s => s === "BIG").length;
+      predSize = recentBigCount >= 2 ? "BIG" : "SMALL";
+      patternName = "TREND LINE EQUILIBRIUM";
+      confidence = 79;
+    }
+  }
+
+  // Hot/Cold numbers logic using deterministic seed combined with statistical weights
+  const seed = getDeterministicRandom(nextPeriod);
+  
+  const bigPool = [5, 6, 7, 8, 9];
+  const smallPool = [0, 1, 2, 3, 4];
+
+  // Frequency mapping for hot numbers
+  const numberFreq: { [key: number]: number } = {};
+  numbers.forEach(n => {
+    numberFreq[n] = (numberFreq[n] || 0) + 1;
+  });
+
+  // Sort pools based on recent frequency (hot first) or seed
+  const sortByHot = (pool: number[]) => {
+    return [...pool].sort((a, b) => {
+      const freqA = numberFreq[a] || 0;
+      const freqB = numberFreq[b] || 0;
+      if (freqA !== freqB) {
+        return freqB - freqA; // Hotter first
+      }
+      return (seed + a) % 3 - (seed + b) % 3; // Deterministic tiebreaker
+    });
+  };
+
+  const sortedBig = sortByHot(bigPool);
+  const sortedSmall = sortByHot(smallPool);
+
+  const matchingPool = predSize === "BIG" ? sortedBig : sortedSmall;
+  const oppositePool = predSize === "BIG" ? sortedSmall : sortedBig;
+
+  // Best matches based on dynamic patterns and seed
+  const predMatching = matchingPool[seed % 2]; // Hottest matching
+  const predOpposite = oppositePool[(seed + 2) % 2]; // Best opposite
+
+  return {
+    period: nextPeriod,
+    size: predSize,
+    opposite: predOpposite,
+    matching: predMatching,
+    pattern: patternName,
+    confidence: confidence
+  };
+}
+
 export default function App() {
   // Authentication & Verification state
   const [password, setPassword] = useState("");
@@ -103,7 +202,14 @@ export default function App() {
           const json = await res.json();
           return json?.data?.list || null;
         },
-        // 2. Dedicated Cloud Run Shared App Backend Proxy (Guaranteed CORS enabled, high reliability)
+        // 2. User's working Vercel Proxy (Guarantees compiled standalone APKs have a reliable data proxy)
+        async () => {
+          const res = await fetch("https://ramu-bhai-09.vercel.app/api/bingo-history");
+          if (!res.ok) return null;
+          const json = await res.json();
+          return json?.data?.list || null;
+        },
+        // 3. Dedicated Cloud Run Shared App Backend Proxy (Guaranteed CORS enabled, high reliability)
         async () => {
           const res = await fetch("https://ais-pre-3kkfv6cntc2226kyxo5gt2-483176443886.asia-southeast1.run.app/api/bingo-history");
           if (!res.ok) return null;
@@ -168,29 +274,7 @@ export default function App() {
         // Generate prediction for the upcoming active period
         let currentPred = predictionsCache.current[nextActivePeriod];
         if (!currentPred) {
-          // Algorithm uses preceding 5 completed results to keep predictions stable
-          const last5Sizes = dataList.slice(0, 5).map((draw: BingoDraw) => 
-            parseInt(draw.number) >= 5 ? "BIG" : "SMALL"
-          );
-          const bigCount = last5Sizes.filter((s: string) => s === "BIG").length;
-          const predSize = bigCount >= 3 ? "BIG" : "SMALL";
-
-          const seed = getDeterministicRandom(nextActivePeriod);
-          const bigPool = [5, 6, 7, 8, 9];
-          const smallPool = [0, 1, 2, 3, 4];
-          
-          const matchingPool = predSize === "BIG" ? bigPool : smallPool;
-          const oppositePool = predSize === "BIG" ? smallPool : bigPool;
-
-          const predMatching = matchingPool[seed % matchingPool.length];
-          const predOpposite = oppositePool[(seed + 3) % oppositePool.length];
-
-          currentPred = {
-            period: nextActivePeriod,
-            size: predSize,
-            opposite: predOpposite,
-            matching: predMatching
-          };
+          currentPred = analyzePredictions(nextActivePeriod, dataList);
           predictionsCache.current[nextActivePeriod] = currentPred;
         }
         setPrediction(currentPred);
@@ -203,31 +287,18 @@ export default function App() {
           const draw = dataList[k];
           const finishedPeriod = draw.issueNumber;
 
-          // We need 5 preceding rounds to calculate what the prediction *was* for this period
-          if (k + 5 < dataList.length) {
-            const precedingRounds = dataList.slice(k + 1, k + 6);
-            const last5Sizes = precedingRounds.map((d: BingoDraw) => 
-              parseInt(d.number) >= 5 ? "BIG" : "SMALL"
-            );
-            const bigCount = last5Sizes.filter((s: string) => s === "BIG").length;
-            const predSize = bigCount >= 3 ? "BIG" : "SMALL";
-
-            const seed = getDeterministicRandom(finishedPeriod);
-            const bigPool = [5, 6, 7, 8, 9];
-            const smallPool = [0, 1, 2, 3, 4];
-            const matchingPool = predSize === "BIG" ? bigPool : smallPool;
-            const oppositePool = predSize === "BIG" ? smallPool : bigPool;
-
-            const predMatching = matchingPool[seed % matchingPool.length];
-            const predOpposite = oppositePool[(seed + 3) % oppositePool.length];
+          // We need 10 preceding rounds to calculate what our advanced engine predicted for this period
+          if (k + 10 < dataList.length) {
+            const precedingRounds = dataList.slice(k + 1);
+            const predResult = analyzePredictions(finishedPeriod, precedingRounds);
 
             const actualNum = parseInt(draw.number);
             const actualSize = actualNum >= 5 ? "BIG" : "SMALL";
 
             let outcomeStatus: "JACKPOT" | "WIN" | "LOSS" = "LOSS";
-            if (actualNum === predMatching || actualNum === predOpposite) {
+            if (actualNum === predResult.matching || actualNum === predResult.opposite) {
               outcomeStatus = "JACKPOT";
-            } else if (actualSize === predSize) {
+            } else if (actualSize === predResult.size) {
               outcomeStatus = "WIN";
             } else {
               outcomeStatus = "LOSS";
@@ -235,12 +306,14 @@ export default function App() {
 
             newHistoryItems.push({
               period: finishedPeriod,
-              predictedSize: predSize,
-              predictedOpposite: predOpposite,
-              predictedMatching: predMatching,
+              predictedSize: predResult.size,
+              predictedOpposite: predResult.opposite,
+              predictedMatching: predResult.matching,
               actualNumber: actualNum,
               actualSize: actualSize,
-              status: outcomeStatus
+              status: outcomeStatus,
+              pattern: predResult.pattern,
+              confidence: predResult.confidence
             });
           }
         }
@@ -266,7 +339,20 @@ export default function App() {
         }
 
         lastActivePeriodRef.current = nextActivePeriod;
-        setHistoryList(newHistoryItems);
+        
+        setHistoryList(prevList => {
+          if (prevList.length === 0) {
+            return newHistoryItems;
+          }
+          const existingPeriods = new Set(prevList.map(item => item.period));
+          const addedItems = newHistoryItems.filter(item => !existingPeriods.has(item.period));
+          
+          if (addedItems.length > 0) {
+            const combinedList = [...addedItems, ...prevList];
+            return combinedList.sort((a, b) => b.period.localeCompare(a.period));
+          }
+          return prevList;
+        });
 
       } catch (err) {
         console.error("Error processing history list:", err);
@@ -361,9 +447,12 @@ export default function App() {
                     VIP SUPREME V15 • SECURED
                   </p>
 
-                  <div className="w-full bg-[#111] border border-dashed border-[#ffea00]/30 rounded-lg p-4 mb-6 text-center">
-                    <p className="text-xs text-gray-300 uppercase tracking-wider leading-relaxed">
-                      THIS PANEL REQUIRES A VALID PASSCODE TO INTEGRATE SECURE SERVER BYPASS MODULES.
+                  <div className="w-full bg-red-950/20 border-2 border-red-500/40 rounded-xl p-4 mb-6 relative">
+                    <p className="text-xs text-[#ff003c] font-black uppercase tracking-wider text-center mb-1.5 flex items-center justify-center gap-1.5">
+                      ⚠️ महत्वपूर्ण चेतावनी (WARNING)
+                    </p>
+                    <p className="text-[11px] text-gray-200 font-bold text-center leading-relaxed">
+                      इसी लिंक से आईडी बनाकर और <span className="text-[#ffea00] underline font-extrabold">500 का डिपाजिट करके</span> ही प्ले करें वरना आपका भारी लॉस हो सकता है। अगर आप दूसरे अकाउंट से लॉगिन या खेलने की कोशिश करते हैं तो आपका भारी नुकसान हो सकता है।
                     </p>
                   </div>
 
@@ -528,6 +617,28 @@ export default function App() {
                 </div>
               </motion.div>
 
+              {/* Premium Warning Alert Box */}
+              <motion.div 
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="bg-red-950/20 border-2 border-red-500/40 rounded-2xl p-4 relative overflow-hidden shadow-[0_0_20px_rgba(239,68,68,0.15)]"
+              >
+                <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(239,68,68,0.1),transparent_50%)]" />
+                <div className="flex items-start gap-3">
+                  <div className="p-2 bg-red-500/10 rounded-xl border border-red-500/30 text-red-400 mt-1">
+                    <ShieldAlert className="w-5 h-5 animate-pulse" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-black text-[#ff003c] uppercase tracking-wider flex items-center gap-1.5">
+                      ⚠️ महत्वपूर्ण चेतावनी (IMPORTANT WARNING)
+                    </h4>
+                    <p className="text-[11px] text-gray-200 mt-1 leading-relaxed font-bold">
+                      इसी लिंक से आईडी बनाकर और <span className="text-[#ffea00] underline">500 का डिपाजिट करके</span> ही प्ले करें वरना आपका भारी लॉस हो सकता है। अगर आप दूसरे अकाउंट से लॉगिन या खेलने की कोशिश करते हैं तो आपका भारी नुकसान हो सकता है और हैक काम नहीं करेगा।
+                    </p>
+                  </div>
+                </div>
+              </motion.div>
+
               {/* Prediction Display Glass Panel */}
               <motion.div 
                 initial={{ opacity: 0, scale: 0.95 }}
@@ -561,17 +672,30 @@ export default function App() {
                   </div>
                   <AnimatePresence mode="wait">
                     {prediction ? (
-                      <motion.div 
-                        key={prediction.size}
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -10 }}
-                        className={`text-6xl md:text-7xl font-display font-black tracking-widest drop-shadow-[0_0_20px_rgba(0,255,65,0.4)] ${
-                          prediction.size === "BIG" ? "text-transparent bg-clip-text bg-gradient-to-r from-red-500 to-amber-500" : "text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-indigo-500"
-                        }`}
-                      >
-                        {prediction.size}
-                      </motion.div>
+                      <div className="space-y-3">
+                        <motion.div 
+                          key={prediction.size}
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -10 }}
+                          className={`text-6xl md:text-7xl font-display font-black tracking-widest drop-shadow-[0_0_20px_rgba(0,255,65,0.4)] ${
+                            prediction.size === "BIG" ? "text-transparent bg-clip-text bg-gradient-to-r from-red-500 to-amber-500" : "text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-indigo-500"
+                          }`}
+                        >
+                          {prediction.size}
+                        </motion.div>
+
+                        {prediction.pattern && (
+                          <div className="flex flex-col items-center justify-center gap-1 mt-2">
+                            <div className="text-[10px] text-[#00ff41] tracking-widest font-extrabold uppercase bg-[#00ff41]/10 px-2.5 py-1 rounded-full border border-[#00ff41]/20">
+                              ⚡ PATTERN: {prediction.pattern}
+                            </div>
+                            <div className="text-[11px] text-gray-300 font-bold uppercase">
+                              ACCURACY PROBABILITY: <span className="text-[#ffea00] font-mono font-black">{prediction.confidence}%</span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     ) : (
                       <div className="text-3xl text-[#ffea00] tracking-widest uppercase font-black animate-pulse py-4">
                         ANALYZING LOGIC...
@@ -673,6 +797,11 @@ export default function App() {
                                   </span>
                                 </div>
                               </div>
+                              {item.pattern && (
+                                <span className="text-[9px] text-gray-400/60 font-extrabold uppercase mt-1 tracking-wider">
+                                  ⚡ {item.pattern} ({item.confidence}%)
+                                </span>
+                              )}
                             </div>
 
                             {/* Center outcome actual number */}

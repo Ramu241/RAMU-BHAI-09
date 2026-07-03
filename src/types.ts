@@ -3,6 +3,8 @@ export interface PredictionResult {
   size: "BIG" | "SMALL";
   opposite: number;
   matching: number;
+  pattern?: string;
+  confidence?: number;
 }
 
 export interface BingoDraw {
@@ -19,4 +21,6 @@ export interface HistoryItem {
   actualNumber: number;
   actualSize: "BIG" | "SMALL";
   status: "JACKPOT" | "WIN" | "LOSS";
+  pattern?: string;
+  confidence?: number;
 }
