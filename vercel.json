@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/bingo-history",
+      "destination": "https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json"
+    }
+  ]
+}
