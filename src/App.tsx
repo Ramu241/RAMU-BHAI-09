@@ -22,6 +22,15 @@ import { motion, AnimatePresence } from "motion/react";
 import SoundEffects from "./sound";
 import { PredictionResult, BingoDraw, HistoryItem } from "./types";
 
+// Helper function to generate a deterministic random number based on a string seed
+function getDeterministicRandom(seedStr: string): number {
+  let hash = 0;
+  for (let i = 0; i < seedStr.length; i++) {
+    hash = seedStr.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return Math.abs(hash);
+}
+
 export default function App() {
   // Authentication & Verification state
   const [password, setPassword] = useState("");
@@ -83,130 +92,194 @@ export default function App() {
     if (!isVerified) return;
 
     const fetchGameHistory = async () => {
-      try {
-        let response = null;
-        try {
-          response = await fetch("/api/bingo-history", {
+      let dataList: BingoDraw[] | null = null;
+      
+      // Highly resilient, multi-layered proxy attempts supporting both server-side Express & client-only (Vercel/GitHub pages) hosts
+      const attempts = [
+        // 1. Direct local API proxy (For our full-stack Express server)
+        async () => {
+          const res = await fetch("/api/bingo-history", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ pageSize: 10, pageNo: 1 }),
+            body: JSON.stringify({ pageSize: 12, pageNo: 1 }),
           });
-        } catch (e) {
-          console.warn("Express API Proxy failed, trying fallback...", e);
+          const json = await res.json();
+          return json?.data?.list || null;
+        },
+        // 2. corsproxy.io with POST (Highly compatible CORS proxy)
+        async () => {
+          const res = await fetch("https://corsproxy.io/?https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ pageSize: 12, pageNo: 1 }),
+          });
+          const json = await res.json();
+          return json?.data?.list || null;
+        },
+        // 3. corsproxy.io with GET (If proxy doesn't route POST body)
+        async () => {
+          const res = await fetch("https://corsproxy.io/?https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json");
+          const json = await res.json();
+          return json?.data?.list || null;
+        },
+        // 4. thingproxy with POST
+        async () => {
+          const res = await fetch("https://thingproxy.freeboard.io/fetch/https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ pageSize: 12, pageNo: 1 }),
+          });
+          const json = await res.json();
+          return json?.data?.list || null;
+        },
+        // 5. allorigins.win raw (GET fallback)
+        async () => {
+          const res = await fetch("https://api.allorigins.win/raw?url=" + encodeURIComponent("https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json"));
+          const json = await res.json();
+          return json?.data?.list || null;
+        },
+        // 6. Direct fetch (In case CORS is disabled on user browser)
+        async () => {
+          const res = await fetch("https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ pageSize: 12, pageNo: 1 }),
+          });
+          const json = await res.json();
+          return json?.data?.list || null;
         }
+      ];
 
-        // If proxy fails (e.g. running on external static servers like Vercel/Github pages), fallback to CORS proxies
-        if (!response || !response.ok) {
-          const fallbackUrls = [
-            "https://api.allorigins.win/raw?url=https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json",
-            "https://corsproxy.io/?https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json",
-            "https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json"
-          ];
-          for (const url of fallbackUrls) {
-            try {
-              const res = await fetch(url);
-              if (res.ok) {
-                response = res;
-                break;
-              }
-            } catch (err) {
-              console.warn(`Fallback proxy ${url} failed:`, err);
-            }
+      for (let i = 0; i < attempts.length; i++) {
+        try {
+          const list = await attempts[i]();
+          if (list && Array.isArray(list) && list.length > 0) {
+            dataList = list;
+            break;
           }
+        } catch (err) {
+          console.warn(`Proxy attempt ${i + 1} failed:`, err);
         }
+      }
 
-        if (!response || !response.ok) {
-          throw new Error("Unable to fetch Bingo history from any source");
+      if (!dataList) {
+        console.error("All Bingo API fetch attempts failed. Check internet connection.");
+        return;
+      }
+
+      try {
+        const latest: BingoDraw = dataList[0];
+        setLatestDraw(latest);
+
+        // The active period is the latest completed period issueNumber + 1
+        const nextActivePeriod = (BigInt(latest.issueNumber) + 1n).toString();
+        setCurrentPeriod(nextActivePeriod);
+
+        // Generate prediction for the upcoming active period
+        let currentPred = predictionsCache.current[nextActivePeriod];
+        if (!currentPred) {
+          // Algorithm uses preceding 5 completed results to keep predictions stable
+          const last5Sizes = dataList.slice(0, 5).map((draw: BingoDraw) => 
+            parseInt(draw.number) >= 5 ? "BIG" : "SMALL"
+          );
+          const bigCount = last5Sizes.filter((s: string) => s === "BIG").length;
+          const predSize = bigCount >= 3 ? "BIG" : "SMALL";
+
+          const seed = getDeterministicRandom(nextActivePeriod);
+          const bigPool = [5, 6, 7, 8, 9];
+          const smallPool = [0, 1, 2, 3, 4];
+          
+          const matchingPool = predSize === "BIG" ? bigPool : smallPool;
+          const oppositePool = predSize === "BIG" ? smallPool : bigPool;
+
+          const predMatching = matchingPool[seed % matchingPool.length];
+          const predOpposite = oppositePool[(seed + 3) % oppositePool.length];
+
+          currentPred = {
+            period: nextActivePeriod,
+            size: predSize,
+            opposite: predOpposite,
+            matching: predMatching
+          };
+          predictionsCache.current[nextActivePeriod] = currentPred;
         }
-        
-        const json = await response.json();
-        if (json && json.data && json.data.list && json.data.list.length > 0) {
-          const latest: BingoDraw = json.data.list[0];
-          setLatestDraw(latest);
+        setPrediction(currentPred);
 
-          // The active period is the latest completed period issueNumber + 1
-          const nextActivePeriod = (BigInt(latest.issueNumber) + 1n).toString();
-          setCurrentPeriod(nextActivePeriod);
+        // Re-construct history list retroactively and dynamically on load.
+        // This keeps the user's history loaded without persisting in localStorage!
+        const newHistoryItems: HistoryItem[] = [];
 
-          // Maintain predictions inside cache
-          let currentPred = predictionsCache.current[nextActivePeriod];
-          if (!currentPred) {
-            // Generate stable prediction for the new active period
-            // Algorithm uses the last 5 results to keep the win logic robust
-            const last5Sizes = json.data.list.slice(0, 5).map((draw: BingoDraw) => 
-              parseInt(draw.number) >= 5 ? "BIG" : "SMALL"
+        for (let k = 0; k < dataList.length; k++) {
+          const draw = dataList[k];
+          const finishedPeriod = draw.issueNumber;
+
+          // We need 5 preceding rounds to calculate what the prediction *was* for this period
+          if (k + 5 < dataList.length) {
+            const precedingRounds = dataList.slice(k + 1, k + 6);
+            const last5Sizes = precedingRounds.map((d: BingoDraw) => 
+              parseInt(d.number) >= 5 ? "BIG" : "SMALL"
             );
             const bigCount = last5Sizes.filter((s: string) => s === "BIG").length;
             const predSize = bigCount >= 3 ? "BIG" : "SMALL";
 
-            // Determine pools based on predicted size
+            const seed = getDeterministicRandom(finishedPeriod);
             const bigPool = [5, 6, 7, 8, 9];
             const smallPool = [0, 1, 2, 3, 4];
-            
-            // Generate 1 matching number and 1 opposite number as requested:
-            // "बिग के साथ दो नंबर ऑपोजिट आ रहा तो एक नंबर ऑपोजिट है और एक नंबर उसके साथ ही आए"
             const matchingPool = predSize === "BIG" ? bigPool : smallPool;
             const oppositePool = predSize === "BIG" ? smallPool : bigPool;
 
-            const predMatching = matchingPool[Math.floor(Math.random() * matchingPool.length)];
-            const predOpposite = oppositePool[Math.floor(Math.random() * oppositePool.length)];
+            const predMatching = matchingPool[seed % matchingPool.length];
+            const predOpposite = oppositePool[(seed + 3) % oppositePool.length];
 
-            currentPred = {
-              period: nextActivePeriod,
-              size: predSize,
-              opposite: predOpposite,
-              matching: predMatching
-            };
-            predictionsCache.current[nextActivePeriod] = currentPred;
-          }
-          setPrediction(currentPred);
+            const actualNum = parseInt(draw.number);
+            const actualSize = actualNum >= 5 ? "BIG" : "SMALL";
 
-          // Check if previous rounds have finished and need history calculation
-          // Loop through the list to check if we missed any period completions
-          json.data.list.forEach((draw: BingoDraw) => {
-            const finishedPeriod = draw.issueNumber;
-            
-            if (!processedPeriods.current.has(finishedPeriod)) {
-              const cachedPred = predictionsCache.current[finishedPeriod];
-              if (cachedPred) {
-                const actualNum = parseInt(draw.number);
-                const actualSize = actualNum >= 5 ? "BIG" : "SMALL";
-                
-                let outcomeStatus: "JACKPOT" | "WIN" | "LOSS" = "LOSS";
-                if (actualNum === cachedPred.matching || actualNum === cachedPred.opposite) {
-                  outcomeStatus = "JACKPOT";
-                  triggerJackpotSound();
-                } else if (actualSize === cachedPred.size) {
-                  outcomeStatus = "WIN";
-                  triggerWinSound();
-                } else {
-                  outcomeStatus = "LOSS";
-                  triggerLossSound();
-                }
-
-                const newHistoryItem: HistoryItem = {
-                  period: finishedPeriod,
-                  predictedSize: cachedPred.size,
-                  predictedOpposite: cachedPred.opposite,
-                  predictedMatching: cachedPred.matching,
-                  actualNumber: actualNum,
-                  actualSize: actualSize,
-                  status: outcomeStatus
-                };
-
-                setHistoryList(prev => {
-                  // Avoid duplicates
-                  if (prev.some(item => item.period === finishedPeriod)) return prev;
-                  return [newHistoryItem, ...prev];
-                });
-                
-                processedPeriods.current.add(finishedPeriod);
-              }
+            let outcomeStatus: "JACKPOT" | "WIN" | "LOSS" = "LOSS";
+            if (actualNum === predMatching || actualNum === predOpposite) {
+              outcomeStatus = "JACKPOT";
+            } else if (actualSize === predSize) {
+              outcomeStatus = "WIN";
+            } else {
+              outcomeStatus = "LOSS";
             }
-          });
+
+            newHistoryItems.push({
+              period: finishedPeriod,
+              predictedSize: predSize,
+              predictedOpposite: predOpposite,
+              predictedMatching: predMatching,
+              actualNumber: actualNum,
+              actualSize: actualSize,
+              status: outcomeStatus
+            });
+          }
         }
+
+        // Sort items descending (newest completed on top)
+        newHistoryItems.sort((a, b) => b.period.localeCompare(a.period));
+
+        // Detect round roll-over to play audio feedback dynamically
+        if (newHistoryItems.length > 0) {
+          const latestHistoryItem = newHistoryItems[0];
+          if (lastActivePeriodRef.current && latestHistoryItem.period === lastActivePeriodRef.current) {
+            if (!processedPeriods.current.has(latestHistoryItem.period)) {
+              if (latestHistoryItem.status === "JACKPOT") {
+                triggerJackpotSound();
+              } else if (latestHistoryItem.status === "WIN") {
+                triggerWinSound();
+              } else {
+                triggerLossSound();
+              }
+              processedPeriods.current.add(latestHistoryItem.period);
+            }
+          }
+        }
+
+        lastActivePeriodRef.current = nextActivePeriod;
+        setHistoryList(newHistoryItems);
+
       } catch (err) {
-        console.error("Error polling Bingo API:", err);
+        console.error("Error processing history list:", err);
       }
     };
 
