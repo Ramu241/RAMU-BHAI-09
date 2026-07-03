@@ -98,84 +98,43 @@ export default function App() {
       const attempts = [
         // 1. Direct local API proxy (For our full-stack Express server)
         async () => {
-          const res = await fetch("/api/bingo-history", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ pageSize: 12, pageNo: 1 }),
-          });
+          const res = await fetch("/api/bingo-history");
           if (!res.ok) return null;
-          const ct = res.headers.get("content-type");
-          if (!ct || !ct.includes("application/json")) return null;
           const json = await res.json();
           return json?.data?.list || null;
         },
         // 2. Dedicated Cloud Run Shared App Backend Proxy (Guaranteed CORS enabled, high reliability)
         async () => {
-          const res = await fetch("https://ais-pre-3kkfv6cntc2226kyxo5gt2-483176443886.asia-southeast1.run.app/api/bingo-history", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ pageSize: 12, pageNo: 1 }),
-          });
+          const res = await fetch("https://ais-pre-3kkfv6cntc2226kyxo5gt2-483176443886.asia-southeast1.run.app/api/bingo-history");
           if (!res.ok) return null;
-          const ct = res.headers.get("content-type");
-          if (!ct || !ct.includes("application/json")) return null;
           const json = await res.json();
           return json?.data?.list || null;
         },
-        // 3. corsproxy.io with POST (Highly compatible CORS proxy)
-        async () => {
-          const res = await fetch("https://corsproxy.io/?https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ pageSize: 12, pageNo: 1 }),
-          });
-          if (!res.ok) return null;
-          const ct = res.headers.get("content-type");
-          if (!ct || !ct.includes("application/json")) return null;
-          const json = await res.json();
-          return json?.data?.list || null;
-        },
-        // 4. corsproxy.io with GET (If proxy doesn't route POST body)
+        // 3. corsproxy.io with GET (Highly compatible and fast CORS proxy)
         async () => {
           const res = await fetch("https://corsproxy.io/?https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json");
           if (!res.ok) return null;
-          const ct = res.headers.get("content-type");
-          if (!ct || !ct.includes("application/json")) return null;
           const json = await res.json();
           return json?.data?.list || null;
         },
-        // 5. thingproxy with POST
-        async () => {
-          const res = await fetch("https://thingproxy.freeboard.io/fetch/https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ pageSize: 12, pageNo: 1 }),
-          });
-          if (!res.ok) return null;
-          const ct = res.headers.get("content-type");
-          if (!ct || !ct.includes("application/json")) return null;
-          const json = await res.json();
-          return json?.data?.list || null;
-        },
-        // 6. allorigins.win raw (GET fallback)
+        // 4. allorigins.win raw (Excellent GET fallback)
         async () => {
           const res = await fetch("https://api.allorigins.win/raw?url=" + encodeURIComponent("https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json"));
           if (!res.ok) return null;
-          const ct = res.headers.get("content-type");
-          if (!ct || !ct.includes("application/json")) return null;
           const json = await res.json();
           return json?.data?.list || null;
         },
-        // 7. Direct fetch (In case CORS is disabled on user browser)
+        // 5. codetabs.com with GET (Additional reliable fallback CORS proxy)
         async () => {
-          const res = await fetch("https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ pageSize: 12, pageNo: 1 }),
-          });
+          const res = await fetch("https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent("https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json"));
           if (!res.ok) return null;
-          const ct = res.headers.get("content-type");
-          if (!ct || !ct.includes("application/json")) return null;
+          const json = await res.json();
+          return json?.data?.list || null;
+        },
+        // 6. Direct fetch (In case CORS is disabled or relaxed in user's browser)
+        async () => {
+          const res = await fetch("https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json");
+          if (!res.ok) return null;
           const json = await res.json();
           return json?.data?.list || null;
         }

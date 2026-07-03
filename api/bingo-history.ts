@@ -17,40 +17,55 @@ export default async function handler(req: any, res: any) {
   try {
     const targetUrl = "https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json";
     
-    // Support custom pageSize/pageNo if sent from client, default to standard pagination
-    const requestBody = req.body && Object.keys(req.body).length > 0 
-      ? req.body 
-      : { pageSize: 12, pageNo: 1 };
-
-    const response = await fetch(targetUrl, {
-      method: "POST",
+    // We prefer GET for simple retrieval as it's highly cached, lightweight, and 100% supported
+    const method = req.method === "POST" ? "POST" : "GET";
+    const options: RequestInit = {
+      method: method,
       headers: {
-        "Content-Type": "application/json",
-        "Accept": "application/json, text/plain, */*",
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
         "Origin": "https://bdgwinmy.cc",
         "Referer": "https://bdgwinmy.cc/"
-      },
-      body: JSON.stringify(requestBody)
-    });
+      }
+    };
 
-    if (!response.ok) {
-      // Fallback to GET just in case the API accepts GET
-      const getResponse = await fetch(targetUrl, {
+    if (method === "POST") {
+      options.headers = {
+        ...options.headers,
+        "Content-Type": "application/json"
+      };
+      options.body = req.body && Object.keys(req.body).length > 0 
+        ? JSON.stringify(req.body) 
+        : JSON.stringify({ pageSize: 12, pageNo: 1 });
+    }
+
+    let response = await fetch(targetUrl, options);
+
+    // Fallback to GET if POST failed
+    if (!response.ok && method === "POST") {
+      response = await fetch(targetUrl, {
         method: "GET",
         headers: {
-          "Accept": "application/json",
+          "Accept": "application/json, text/plain, */*",
           "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         }
       });
-      const getData = await getResponse.json();
-      return res.status(200).json(getData);
     }
 
-    const data = await response.json();
+    const text = await response.text();
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (e) {
+      console.error("Failed to parse response text as JSON:", text.substring(0, 100));
+      throw new Error("Invalid JSON response from target");
+    }
+
+    res.setHeader("Content-Type", "application/json");
     return res.status(200).json(data);
   } catch (error: any) {
     console.error("Vercel Serverless Proxy Error:", error);
+    res.setHeader("Content-Type", "application/json");
     return res.status(500).json({ error: error.message || "Failed to fetch bingo history" });
   }
 }

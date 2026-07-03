@@ -25,37 +25,45 @@ async function startServer() {
     try {
       const targetUrl = "https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json";
       
-      // Support custom pageSize/pageNo if sent from client, default to standard pagination
-      const requestBody = req.body && Object.keys(req.body).length > 0 
-        ? req.body 
-        : { pageSize: 10, pageNo: 1 };
-
-      const response = await fetch(targetUrl, {
-        method: "POST",
+      const method = req.method === "POST" ? "POST" : "GET";
+      const options: any = {
+        method: method,
         headers: {
-          "Content-Type": "application/json",
-          "Accept": "application/json, text/plain, */*",
           "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          "Accept": "application/json, text/plain, */*",
           "Origin": "https://bdgwinmy.cc",
           "Referer": "https://bdgwinmy.cc/"
-        },
-        body: JSON.stringify(requestBody)
-      });
+        }
+      };
 
-      if (!response.ok) {
-        // Fallback to GET just in case the API accepts GET
-        const getResponse = await fetch(targetUrl, {
+      if (method === "POST") {
+        options.headers["Content-Type"] = "application/json";
+        options.body = req.body && Object.keys(req.body).length > 0 
+          ? JSON.stringify(req.body) 
+          : JSON.stringify({ pageSize: 12, pageNo: 1 });
+      }
+
+      let response = await fetch(targetUrl, options);
+
+      if (!response.ok && method === "POST") {
+        response = await fetch(targetUrl, {
           method: "GET",
           headers: {
-            "Accept": "application/json",
+            "Accept": "application/json, text/plain, */*",
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
           }
         });
-        const getData = await getResponse.json();
-        return res.json(getData);
       }
 
-      const data = await response.json();
+      const text = await response.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        console.error("Failed to parse response text as JSON:", text.substring(0, 100));
+        return res.status(502).json({ error: "Invalid JSON from target" });
+      }
+
       return res.json(data);
     } catch (error: any) {
       console.error("Error proxying bingo history:", error);
