@@ -146,6 +146,10 @@ export default function App() {
   const savedOppositesRef30S = useRef<number[]>([]);
   const lastCompletedPeriodRef30S = useRef<string>("");
 
+  // Refs to track consecutive losses for smart adaptive prediction levels
+  const consecutiveLossesRef1M = useRef<number>(0);
+  const consecutiveLossesRef30S = useRef<number>(0);
+
   // Local alias variables mapped to the selected mode to avoid changing UI JSX code
   const currentPeriod = activeMode === "1m" ? currentPeriod1M : currentPeriod30S;
   const timeRemaining = activeMode === "1m" ? timeRemaining1M : timeRemaining30S;
@@ -265,25 +269,36 @@ export default function App() {
         const latest: BingoDraw = dataList[0];
         setLatestDraw1M(latest);
 
-        // Perform smart pattern recognition/trend prediction
-        const nextPred = calculateTrendPrediction(dataList);
-
         if (lastCompletedPeriodRef1M.current !== latest.issueNumber) {
           const actualNum = parseInt(latest.number);
           const actualSize = actualNum >= 5 ? "BIG" : "SMALL";
 
-          let lastPred = savedPredictionRef1M.current || nextPred;
-          let lastOpps = savedOppositesRef1M.current || [];
+          let lastPred = savedPredictionRef1M.current;
+          let lastOpps = savedOppositesRef1M.current;
 
-          // Only add to history if we have already witnessed a period transition
-          if (lastCompletedPeriodRef1M.current) {
+          let computedNextPred: "BIG" | "SMALL" = "BIG";
+
+          if (lastCompletedPeriodRef1M.current && lastPred) {
             const isWin = (lastPred === actualSize) || lastOpps.includes(actualNum);
 
             // Play audio feedback (only if 1m is currently active to avoid sound double triggers)
             if (isWin) {
+              consecutiveLossesRef1M.current = 0;
               if (activeMode === "1m" && soundEnabled) SoundEffects.playWin();
             } else {
+              consecutiveLossesRef1M.current += 1;
               if (activeMode === "1m" && soundEnabled) SoundEffects.playLoss();
+            }
+
+            // Decide computedNextPred based on consecutiveLosses
+            if (consecutiveLossesRef1M.current === 0) {
+              computedNextPred = calculateTrendPrediction(dataList);
+            } else if (consecutiveLossesRef1M.current === 1) {
+              // Level 1 loss: Repeat previous prediction ("दूसरी बार भी वही रिजल्ट देगा")
+              computedNextPred = lastPred as "BIG" | "SMALL";
+            } else {
+              // Level 2+ loss: Follow actual rolling game side ("तो उसकी साइड चलेगा की साइड पैनल चल रहा है मतलब गेम चल रहा है")
+              computedNextPred = actualSize;
             }
 
             const newLogItem: HistoryItem = {
@@ -297,6 +312,9 @@ export default function App() {
 
             // Prepend new history items (newest completed on top)
             setHistoryList1M(prev => [newLogItem, ...prev]);
+          } else {
+            // First ever transition
+            computedNextPred = calculateTrendPrediction(dataList);
           }
 
           // Generate 1 SMALL and 1 BIG recommended number deterministically
@@ -311,14 +329,14 @@ export default function App() {
 
           // Update refs to track state for next round
           lastCompletedPeriodRef1M.current = latest.issueNumber;
-          savedPredictionRef1M.current = nextPred;
+          savedPredictionRef1M.current = computedNextPred;
           savedOppositesRef1M.current = shuffledOpposites;
 
           // Update states to display upcoming period and predictions
           setCurrentPeriod1M(upcomingPeriodStr);
           setPrediction1M({
             period: upcomingPeriodStr,
-            size: nextPred,
+            size: computedNextPred,
             opposites: shuffledOpposites
           });
         }
@@ -414,25 +432,36 @@ export default function App() {
         const latest: BingoDraw = dataList[0];
         setLatestDraw30S(latest);
 
-        // Perform smart pattern recognition/trend prediction
-        const nextPred = calculateTrendPrediction(dataList);
-
         if (lastCompletedPeriodRef30S.current !== latest.issueNumber) {
           const actualNum = parseInt(latest.number);
           const actualSize = actualNum >= 5 ? "BIG" : "SMALL";
 
-          let lastPred = savedPredictionRef30S.current || nextPred;
-          let lastOpps = savedOppositesRef30S.current || [];
+          let lastPred = savedPredictionRef30S.current;
+          let lastOpps = savedOppositesRef30S.current;
 
-          // Only add to history if we have already witnessed a period transition
-          if (lastCompletedPeriodRef30S.current) {
+          let computedNextPred: "BIG" | "SMALL" = "BIG";
+
+          if (lastCompletedPeriodRef30S.current && lastPred) {
             const isWin = (lastPred === actualSize) || lastOpps.includes(actualNum);
 
             // Play audio feedback (only if 30s is currently active to avoid sound double triggers)
             if (isWin) {
+              consecutiveLossesRef30S.current = 0;
               if (activeMode === "30s" && soundEnabled) SoundEffects.playWin();
             } else {
+              consecutiveLossesRef30S.current += 1;
               if (activeMode === "30s" && soundEnabled) SoundEffects.playLoss();
+            }
+
+            // Decide computedNextPred based on consecutiveLosses
+            if (consecutiveLossesRef30S.current === 0) {
+              computedNextPred = calculateTrendPrediction(dataList);
+            } else if (consecutiveLossesRef30S.current === 1) {
+              // Level 1 loss: Repeat previous prediction ("दूसरी बार भी वही रिजल्ट देगा")
+              computedNextPred = lastPred as "BIG" | "SMALL";
+            } else {
+              // Level 2+ loss: Follow actual rolling game side ("तो उसकी साइड चलेगा की साइड पैनल चल रहा है मतलब गेम चल रहा है")
+              computedNextPred = actualSize;
             }
 
             const newLogItem: HistoryItem = {
@@ -446,6 +475,9 @@ export default function App() {
 
             // Prepend new history items (newest completed on top)
             setHistoryList30S(prev => [newLogItem, ...prev]);
+          } else {
+            // First ever transition
+            computedNextPred = calculateTrendPrediction(dataList);
           }
 
           // Generate 1 SMALL and 1 BIG recommended number deterministically
@@ -460,14 +492,14 @@ export default function App() {
 
           // Update refs to track state for next round
           lastCompletedPeriodRef30S.current = latest.issueNumber;
-          savedPredictionRef30S.current = nextPred;
+          savedPredictionRef30S.current = computedNextPred;
           savedOppositesRef30S.current = shuffledOpposites;
 
           // Update states to display upcoming period and predictions
           setCurrentPeriod30S(upcomingPeriodStr);
           setPrediction30S({
             period: upcomingPeriodStr,
-            size: nextPred,
+            size: computedNextPred,
             opposites: shuffledOpposites
           });
         }
